@@ -1,6 +1,9 @@
  import { NextResponse } from "next/server";
  import { S3Client, CreateMultipartUploadCommand, UploadPartCommand, CompleteMultipartUploadCommand, AbortMultipartUploadCommand } from "@aws-sdk/client-s3";
  import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { randomUUID } from "crypto";
+import { DynamoDBDocumentClient, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 
  export const runtime = "nodejs";
  export const dynamic = "force-dynamic";
@@ -13,6 +16,16 @@
      secretAccessKey: process.env.SECRET_ACCESS_KEY ?? "",
    },
  });
+
+ const ddb = DynamoDBDocumentClient.from(
+  new DynamoDBClient({
+    region: process.env.REGION,
+    credentials: {
+      accessKeyId: process.env.ACCESS_KEY ?? "",
+      secretAccessKey: process.env.SECRET_ACCESS_KEY ?? "",
+    },
+  })
+);
 
  function safe(str: string) {
    return str.replace(/[^a-z0-9-_\.]+/gi, "_");
@@ -61,7 +74,21 @@
          MultipartUpload: { Parts: parts },
        });
        await s3.send(cmd);
-       return NextResponse.json({ msg: `File uploaded to ${key}` });
+       const item = {
+        id: randomUUID(),
+        createdAt: String(Date.now()),
+        videoKey: key,
+      };
+
+      await ddb.send(
+        new PutCommand({
+          TableName: process.env.DDB_TABLE!,
+          Item: item,
+        })
+      );
+
+
+       return NextResponse.json({ msg: `File uploaded to ${key}`,id: item.id });
      }
 
      if (action === "abort") {
